@@ -13,6 +13,7 @@ keywords = ["proxy", "enum", "sealed", "variant"]
 proc-macro = true
 
 [dependencies]
-syn = { version = "1", features = [ "full", "visit-mut" ] }
+syn = { version = "1", features = ["full", "visit-mut"] }
 quote = "1"
 proc-macro2 = "1"
+proc-macro-error = "1"

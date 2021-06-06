@@ -142,6 +142,7 @@ use syn::{
     ItemMod, ItemTrait, Pat, PatType, Path, PathArguments, Signature, TraitItem, Type, Variant,
 };
 
+use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::quote;
 
 const IMPL_ATTR: &str = "implement";
@@ -169,9 +170,9 @@ fn gen_static_method_call(receiver: TokenStream2, signature: &Signature) -> Toke
         .map(|a| match a {
             FnArg::Typed(PatType { pat, .. }) => match &**pat {
                 Pat::Ident(ident) => &ident.ident,
-                other => panic!("unsupported pattern in parameter: `{}`", quote! { #other }),
+                _ => abort!(pat, "unsupported pattern in parameter"),
             },
-            _ => panic!("parameter binding must be an identifier"),
+            _ => abort!(a, "parameter binding must be an identifier"),
         });
 
     quote! { #receiver::#method_ident(__self #(, #args)*) }
@@ -189,7 +190,10 @@ impl From<Variant> for WrapperVariant {
                 variant: variant.clone(),
                 wrapped: a.unnamed.first().unwrap().ty.clone(),
             },
-            _ => panic!("expected a variant with a single unnamed value"),
+            _ => abort!(
+                variant.fields,
+                "expected a variant with a single unnamed value"
+            ),
         }
     }
 }
@@ -243,10 +247,7 @@ fn implement_trait(
             if !has_self_param(sig) {
                 match &i.default {
                     Some(..) => return parse2(quote! { #i }).unwrap(),
-                    None => panic!(
-                        "`{}` has no self parameter or default implementation",
-                        quote! { #sig }
-                    ),
+                    None => abort!(i, "method has no self parameter or default implementation"),
                 }
             }
 
@@ -256,7 +257,8 @@ fn implement_trait(
             let tokens = quote! { #sig { #match_block } };
             parse2::<ImplItem>(tokens).unwrap()
         }
-        _ => panic!(
+        _ => abort!(
+            i,
             "impl block annotated with `#[{}]` may only contain methods",
             IMPL_ATTR
         ),
@@ -276,7 +278,11 @@ fn implement_raw(variants: &[WrapperVariant], pseudo_impl: &mut ItemImpl) {
         })
         .for_each(|mut method| {
             if !method.block.stmts.is_empty() {
-                panic!("method annotated with `#[{}]` must be empty", IMPL_ATTR)
+                abort!(
+                    method,
+                    "method annotated with `#[{}]` must be empty",
+                    IMPL_ATTR
+                )
             }
 
             let match_block = gen_match_block(variants, |variant| {
@@ -306,7 +312,7 @@ impl GenerateProxyImpl {
     fn get_variants(&self) -> &[WrapperVariant] {
         self.variants
             .as_ref()
-            .unwrap_or_else(|| panic!("proxy enum must be defined first"))
+            .unwrap_or_else(|| abort_call_site!("proxy enum must be defined first"))
             .as_slice()
     }
 
@@ -332,7 +338,7 @@ impl GenerateProxyImpl {
 
         self.trait_defs
             .get(&path)
-            .unwrap_or_else(|| panic!("missing declaration of trait `{}`", path))
+            .unwrap_or_else(|| abort!(path, "missing declaration of trait `{}`", path))
     }
 
     fn impl_from_variants(&self, module: &mut ItemMod) {
@@ -410,6 +416,7 @@ impl VisitMut for GenerateProxyImpl {
 }
 
 #[proc_macro_attribute]
+#[proc_macro_error]
 pub fn proxy(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut module = parse_macro_input!(item as ItemMod);
     let proxy_enum = parse_macro_input!(attr as Ident);
